@@ -1,0 +1,62 @@
+# Example RRC Web Configuration
+
+# This is an example configuration file showing all available options.
+# Copy this to ~/.rrc_web/config.json and customize as needed.
+
+{
+  # Path to your Reticulum identity file
+  # Will be created if it doesn't exist
+  "identity_path": "~/.rrc_web/identity",
+  
+  # Reticulum destination name (must match hub configuration)
+  "dest_name": "rrc.hub",
+  
+  # Hub destination hash (hex string)
+  # Get this from your hub administrator
+  "hub_hash": "abcdef0123456789abcdef0123456789",
+  
+  # Your display nickname (optional)
+  "nickname": "MyNick",
+  
+  # Reticulum configuration directory (optional)
+  # Leave null to use default Reticulum config
+  "configdir": null,
+  
+  # HTTP server port
+  "server_port": 8080,
+  
+  # HTTP server host (use "0.0.0.0" to allow external connections)
+  "server_host": "localhost",
+  
+  # Room to auto-join after connecting (optional)
+  "auto_join_room": "general",
+  
+  # UI theme (currently only "dark" is implemented)
+  "theme": "dark",
+  
+  # Security settings
+  
+  # Enable authentication (requires auth_token)
+  "enable_auth": false,
+  
+  # Authentication token (generate with: python -c "import secrets; print(secrets.token_urlsafe(32))")
+  "auth_token": "",
+  
+  # Enable SSL/TLS (HTTPS and WSS)
+  "enable_ssl": false,
+  
+  # SSL certificate file path (use generate_cert.py to create)
+  "ssl_cert_path": "~/.rrc-web/cert.pem",
+  
+  # SSL private key file path
+  "ssl_key_path": "~/.rrc-web/key.pem",
+  
+  # Session timeout in minutes (requires authentication)
+  "session_timeout_minutes": 60,
+  
+  # Allowed origins for CORS (add your frontend URL if different)
+  "allowed_origins": ["http://localhost:8080"],
+  
+  # Enable security headers (recommended)
+  "enable_security_headers": true
+}

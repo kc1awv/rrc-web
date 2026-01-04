@@ -1,0 +1,64 @@
+@import "tailwindcss";
+@plugin "daisyui";
+
+@theme {
+  /* Tailwind v4 theme customizations go here */
+}
+
+/* Full height layout */
+html, body {
+  height: 100vh;
+  margin: 0;
+  overflow: hidden;
+}
+
+#app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Form control spacing fixes */
+.form-control {
+  margin-bottom: 0;
+}
+
+.form-control .label {
+  padding-top: 0;
+  padding-bottom: 0.25rem;
+}
+
+.form-control + .form-control {
+  margin-top: 1rem;
+}
+
+/* Custom scrollbar styles */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background-color: hsl(var(--b3));
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--bc) / 0.2);
+  border-radius: 0.5rem;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--bc) / 0.3);
+}
+
+/* Message area styles */
+.message-area {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Room list styles */
+.room-list {
+  width: 100%;
+  border-radius: var(--rounded-box, 1rem);
+}
