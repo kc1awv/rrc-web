@@ -530,7 +530,9 @@ class Client:
             raise ValueError("Room name cannot be empty. Specify the room for the notice.")
         if not text.strip():
             raise ValueError("Notice text cannot be empty. Enter notice text to send.")
-        self._send(make_envelope(T_NOTICE, src=self.identity.hash, room=r, body=text, nick=self.nickname))
+        self._send(
+            make_envelope(T_NOTICE, src=self.identity.hash, room=r, body=text, nick=self.nickname)
+        )
 
     def ping(self) -> None:
         """Send a PING to the server."""
