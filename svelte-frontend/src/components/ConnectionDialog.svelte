@@ -11,6 +11,14 @@
     let identityPath = $state($connectionSettings.identityPath);
     let showAdvanced = $state(false);
 
+    // React to changes in connectionSettings store
+    $effect(() => {
+        hubHash = $connectionSettings.hubHash || hubHash;
+        destName = $connectionSettings.destName || destName;
+        nick = $connectionSettings.nickname || nick;
+        identityPath = $connectionSettings.identityPath || identityPath;
+    });
+
     onMount(() => {
         // Request discovered hubs when dialog opens
         requestDiscoveredHubs();

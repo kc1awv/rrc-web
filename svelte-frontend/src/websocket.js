@@ -123,6 +123,9 @@ function handleMessage(data) {
         case 'discovered_hubs':
             handleDiscoveredHubs(data);
             break;
+        case 'nickname_set':
+            handleNicknameSet(data);
+            break;
     }
 }
 
@@ -290,6 +293,16 @@ function updateState(data) {
         identityHash.set(data.identity_hash);
     }
 
+    if (data.config) {
+        connectionSettings.update(settings => ({
+            ...settings,
+            hubHash: data.config.hub_hash || settings.hubHash,
+            destName: data.config.dest_name || settings.destName,
+            nickname: data.config.nickname || settings.nickname,
+            identityPath: data.config.identity_path || settings.identityPath
+        }));
+    }
+
     if (data.rooms && Object.keys(data.rooms).length > 0) {
         rooms.update(r => {
             const newRooms = new Map();
@@ -349,6 +362,12 @@ function handleHubDiscovered(data) {
 
 function handleDiscoveredHubs(data) {
     discoveredHubs.set(data.hubs || []);
+}
+
+function handleNicknameSet(data) {
+    if (data.nickname !== undefined) {
+        nickname.set(data.nickname);
+    }
 }
 
 export function requestDiscoveredHubs() {

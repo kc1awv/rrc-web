@@ -634,6 +634,12 @@ class BackendService:
             "nickname": self.client.nickname if self.client else None,
             "identity_hash": self.identity.hash.hex() if self.identity else None,
             "active_room": self.active_room,
+            "config": {
+                "dest_name": self.config.get("dest_name", ""),
+                "hub_hash": self.config.get("hub_hash", ""),
+                "nickname": self.config.get("nickname", ""),
+                "identity_path": self.config.get("identity_path", ""),
+            },
             "rooms": {
                 name: {
                     "messages": room_data["messages"][-STATE_MESSAGES_TO_RETURN:],

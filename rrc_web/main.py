@@ -44,6 +44,7 @@ ALLOWED_MESSAGE_TYPES = {
     "send_message",
     "send_command",
     "set_active_room",
+    "set_nickname",
     "get_state",
     "get_discovered_hubs",
 }

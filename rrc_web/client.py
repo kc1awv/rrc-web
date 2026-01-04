@@ -503,7 +503,7 @@ class Client:
             raise ValueError("Room name cannot be empty. Specify the room to send the message to.")
         if not text.strip():
             raise ValueError("Message text cannot be empty. Enter a message to send.")
-        env = make_envelope(T_MSG, src=self.identity.hash, room=r, body=text)
+        env = make_envelope(T_MSG, src=self.identity.hash, room=r, body=text, nick=self.nickname)
         self._send(env)
         mid = env.get(K_ID)
         if not isinstance(mid, (bytes, bytearray)):
@@ -530,7 +530,7 @@ class Client:
             raise ValueError("Room name cannot be empty. Specify the room for the notice.")
         if not text.strip():
             raise ValueError("Notice text cannot be empty. Enter notice text to send.")
-        self._send(make_envelope(T_NOTICE, src=self.identity.hash, room=r, body=text))
+        self._send(make_envelope(T_NOTICE, src=self.identity.hash, room=r, body=text, nick=self.nickname))
 
     def ping(self) -> None:
         """Send a PING to the server."""
