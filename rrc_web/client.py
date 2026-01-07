@@ -375,6 +375,40 @@ class Client:
 
         def _established(established_link: RNS.Link) -> None:
             """Callback when link is established."""
+            logger.debug("Link established - setting resource callbacks")
+            established_link.set_resource_strategy(RNS.Link.ACCEPT_APP)
+            established_link.set_resource_callback(self._resource_advertised)  # Generic callback
+            established_link.set_resource_started_callback(self._resource_advertised)
+            established_link.set_resource_concluded_callback(self._resource_concluded)
+
+            # Also try setting via private attributes (RNS internal implementation)
+            try:
+                established_link._Link__resource_callback = self._resource_advertised
+                established_link._Link__resource_started_callback = self._resource_advertised
+                established_link._Link__resource_concluded_callback = self._resource_concluded
+                logger.debug("Set callbacks via private attributes as fallback")
+            except Exception as e:
+                logger.debug(f"Could not set private attributes: {e}")
+
+            # Verify callbacks are set
+            resource_cb = getattr(established_link, "resource_callback", None) or getattr(
+                established_link, "_Link__resource_callback", None
+            )
+            started_cb = getattr(established_link, "resource_started_callback", None) or getattr(
+                established_link, "_Link__resource_started_callback", None
+            )
+            concluded_cb = getattr(
+                established_link, "resource_concluded_callback", None
+            ) or getattr(established_link, "_Link__resource_concluded_callback", None)
+
+            logger.info(
+                "Resource callbacks after setup: strategy=%s, resource=%s, started=%s, concluded=%s",
+                getattr(established_link, "resource_strategy", "NOT SET"),
+                "SET" if resource_cb else "NOT SET",
+                "SET" if started_cb else "NOT SET",
+                "SET" if concluded_cb else "NOT SET",
+            )
+
             self._on_link_established(established_link, timeout_s, _hello_loop)
 
         def _closed(_: RNS.Link) -> None:
@@ -388,10 +422,6 @@ class Client:
 
         link = RNS.Link(hub_dest, established_callback=_established, closed_callback=_closed)
         link.set_packet_callback(lambda data, _pkt: self._on_packet(data))
-
-        link.set_resource_strategy(RNS.Link.ACCEPT_APP)
-        link.set_resource_started_callback(self._resource_advertised)
-        link.set_resource_concluded_callback(self._resource_concluded)
 
         with self._lock:
             self.link = link
@@ -578,21 +608,42 @@ class Client:
         self._cleanup_expired_expectations()
 
         with self._lock:
-            for rid, exp in list(self._resource_expectations.items()):
+            for _rid, exp in list(self._resource_expectations.items()):
                 if exp.size == size:
-                    return self._resource_expectations.pop(rid, None)
+                    # Don't pop yet - just return the expectation
+                    # We'll remove it when the resource transfer completes
+                    return exp
         return None
 
     def _resource_advertised(self, resource: RNS.Resource) -> bool:
         """Callback when a Resource is advertised by the hub.
 
         Args:
-            resource: Advertised resource
+            resource: Advertised resource (may be ResourceAdvertisement or Resource)
 
         Returns:
             True to accept, False to reject
         """
-        size = resource.total_size if hasattr(resource, "total_size") else resource.size
+        try:
+            # Handle both Resource and ResourceAdvertisement objects
+            if hasattr(resource, "get_data_size"):
+                # ResourceAdvertisement object
+                size = resource.get_data_size()
+                logger.debug(
+                    f"ResourceAdvertisement: data_size={size}, transfer_size={resource.get_transfer_size()}"
+                )
+            elif hasattr(resource, "total_size"):
+                size = resource.total_size
+            elif hasattr(resource, "size"):
+                size = resource.size
+            else:
+                logger.error(f"Resource object has no size attribute: type={type(resource)}")
+                return False
+
+            logger.debug(f"Resource advertised: size={size}, type={type(resource).__name__}")
+        except Exception as e:
+            logger.error(f"Error getting resource size: {e}", exc_info=True)
+            return False
 
         if size > self.config.max_resource_bytes:
             logger.debug(
@@ -609,15 +660,30 @@ class Client:
 
         exp = self._find_resource_expectation(size)
         if not exp:
-            logger.debug(f"Rejecting resource: no matching expectation for size {size}")
-            return False
+            logger.warning(
+                f"Resource advertised without matching expectation (size={size}). "
+                f"Will accept speculatively. Current expectations: {list(self._resource_expectations.keys())}"
+            )
+            # Accept anyway - the expectation might arrive after the resource advertisement
+            # We'll validate when the resource completes
+            with self._lock:
+                if len(self._active_resources) >= self.config.max_active_resources:
+                    logger.warning(
+                        f"Rejecting speculative resource: already have {len(self._active_resources)} active transfers"
+                    )
+                    return False
+                self._active_resources.add(resource)
+            logger.info(
+                f"Accepted speculative resource transfer: size={size}, active={len(self._active_resources)}"
+            )
+            return True
 
         with self._lock:
             self._active_resources.add(resource)
             self._resource_to_expectation[resource] = exp
 
-        logger.debug(
-            f"Accepted resource transfer (size={size}, active={len(self._active_resources)})"
+        logger.info(
+            f"Accepted resource transfer: kind={exp.kind}, size={size}, active={len(self._active_resources)}"
         )
         return True
 
@@ -627,19 +693,44 @@ class Client:
         Args:
             resource: Completed resource
         """
+        logger.debug(f"Resource concluded callback triggered, status={resource.status}")
         with self._lock:
             self._active_resources.discard(resource)
             matched_exp = self._resource_to_expectation.pop(resource, None)
 
         if not matched_exp:
-            try:
-                if hasattr(resource, "data") and resource.data:
-                    resource.data.close()
-            except Exception as e:
-                logger.debug("Error closing unexpected resource data: %s", e)
-            return
+            logger.warning(
+                f"Resource concluded without matching expectation (status={resource.status}). "
+                f"Attempting to find expectation by size..."
+            )
+            # Try to find an expectation now - it might have arrived after the resource was advertised
+            size = resource.total_size if hasattr(resource, "total_size") else resource.size
+            matched_exp = self._find_resource_expectation(size)
+            if not matched_exp:
+                logger.warning(f"No expectation found for concluded resource (size={size})")
+                try:
+                    if hasattr(resource, "data") and resource.data:
+                        resource.data.close()
+                except Exception as e:
+                    logger.debug("Error closing unexpected resource data: %s", e)
+                return
+            logger.info(
+                f"Matched concluded resource with expectation: kind={matched_exp.kind}, size={size}"
+            )
+
+        # Remove the expectation now that we're processing the resource
+        with self._lock:
+            # Find and remove the expectation by value since we might not have the key
+            for rid, exp in list(self._resource_expectations.items()):
+                if exp == matched_exp:
+                    self._resource_expectations.pop(rid, None)
+                    logger.debug(f"Removed expectation {rid.hex()}")
+                    break
 
         if resource.status != RNS.Resource.COMPLETE:
+            logger.warning(
+                f"Resource transfer incomplete: status={resource.status}, kind={matched_exp.kind}"
+            )
             try:
                 if hasattr(resource, "data") and resource.data:
                     resource.data.close()
@@ -672,6 +763,7 @@ class Client:
             try:
                 encoding = matched_exp.encoding or "utf-8"
                 text = data.decode(encoding)
+                logger.info(f"Received NOTICE resource ({len(text)} chars): {text[:100]}...")
                 env = {
                     K_T: T_NOTICE,
                     K_BODY: text,
@@ -682,6 +774,8 @@ class Client:
                         self.on_notice(env)
                     except Exception as e:
                         logger.exception("Error in on_notice callback: %s", e)
+                else:
+                    logger.warning("Received NOTICE but on_notice callback is None")
             except UnicodeDecodeError as e:
                 logger.warning("Failed to decode NOTICE resource as text: %s", e)
             except Exception as e:
@@ -690,6 +784,7 @@ class Client:
             try:
                 encoding = matched_exp.encoding or "utf-8"
                 text = data.decode(encoding)
+                logger.info(f"Received MOTD resource ({len(text)} chars): {text[:100]}...")
                 env = {
                     K_T: T_NOTICE,
                     K_BODY: text,
@@ -700,6 +795,8 @@ class Client:
                         self.on_notice(env)
                     except Exception as e:
                         logger.exception("Error in on_notice callback for MOTD: %s", e)
+                else:
+                    logger.warning("Received MOTD but on_notice callback is None")
             except UnicodeDecodeError as e:
                 logger.warning("Failed to decode MOTD resource as text: %s", e)
             except Exception as e:
@@ -815,6 +912,12 @@ class Client:
                         created_at=now,
                         expires_at=now + self.config.resource_expectation_ttl_s,
                         room=room if isinstance(room, str) else None,
+                    )
+                    logger.debug(
+                        "Stored resource expectation: kind=%s, size=%d, rid=%s",
+                        kind,
+                        size,
+                        rid.hex() if isinstance(rid, bytes) else rid,
                     )
             except Exception as e:
                 logger.warning("Failed to process resource envelope: %s", e)
