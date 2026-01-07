@@ -164,4 +164,13 @@
         transform: translateY(-2px);
         box-shadow: 0 6px 8px -1px rgba(0, 0, 0, 0.15), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
+
+    /* --TEST-- Fix text wrapping for long messages */
+    :global(.chat-bubble) {
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        max-width: 100%;
+        white-space: pre-wrap;
+    }
 </style>
