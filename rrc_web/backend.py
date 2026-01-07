@@ -819,6 +819,8 @@ class BackendService:
         room = env.get(K_ROOM)
         body = env.get(K_BODY, "")
 
+        logger.info(f"Received notice for room '{room}': {body[:100] if body else '(empty)'}...")
+
         message = {
             "type": "notice",
             "room": room or "[Hub]",
