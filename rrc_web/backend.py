@@ -896,25 +896,17 @@ class BackendService:
             self.ping_task = self.loop.create_task(self._ping_loop())
 
     async def _on_joined(self, room: str, env: dict) -> None:
-        """Handle JOINED confirmation from RRC."""
-        if room not in self.rooms:
-            if len(self.rooms) >= self.max_rooms:
-                logger.error(f"Room limit reached ({self.max_rooms}), cannot join room: {room}")
-                if self.broadcast:
-                    await self.broadcast(
-                        {
-                            "type": "error",
-                            "error": f"Cannot join room: server room limit reached ({self.max_rooms})",
-                        }
-                    )
-                return
-            self.rooms[room] = {"messages": [], "users": set()}
+        """Handle JOINED confirmation from RRC.
 
+        This handles two scenarios:
+        1. Self-join: Multiple hashes (full member list) - we just joined the room
+        2. Member-join: Single hash - another user joined the room we're in
+        """
         body = env.get(K_BODY)
-        users = []
 
         logger.debug(f"JOINED room={room}, body type={type(body)}, body={body}")
 
+        # Extract user list from body (could be dict or list)
         user_list = None
         if isinstance(body, dict):
             user_list = body.get(B_JOINED_USERS)
@@ -923,7 +915,28 @@ class BackendService:
             user_list = body
             logger.debug(f"Body is list directly, user_list={user_list}")
 
-        if isinstance(user_list, list):
+        if not isinstance(user_list, list):
+            user_list = []
+
+        # Determine if this is a self-join (multiple users) or member-join (single user)
+        is_self_join = len(user_list) != 1
+
+        if is_self_join:
+            # We're joining the room - create/reset room with full member list
+            if room not in self.rooms:
+                if len(self.rooms) >= self.max_rooms:
+                    logger.error(f"Room limit reached ({self.max_rooms}), cannot join room: {room}")
+                    if self.broadcast:
+                        await self.broadcast(
+                            {
+                                "type": "error",
+                                "error": f"Cannot join room: server room limit reached ({self.max_rooms})",
+                            }
+                        )
+                    return
+                self.rooms[room] = {"messages": [], "users": set()}
+
+            users = []
             for user_hash in user_list:
                 if isinstance(user_hash, (bytes, bytearray)):
                     user_hex = user_hash.hex()
@@ -931,44 +944,138 @@ class BackendService:
                     users.append(self._format_user(user_hash))
                     logger.debug(f"Added user: {self._format_user(user_hash)}")
 
-        message = {
-            "type": "system",
-            "room": room,
-            "text": f"Joined room: {room}",
-            "timestamp": self._get_timestamp(),
-        }
-        self.rooms[room]["messages"].append(message)
-
-        if self.broadcast:
-            await self.broadcast(message)
-            await self.broadcast(
-                {
-                    "type": "room_joined",
-                    "room": room,
-                    "users": users,
-                }
-            )
-
-    async def _on_parted(self, room: str, _env: dict) -> None:
-        """Handle PARTED confirmation from RRC."""
-        message = {
-            "type": "system",
-            "room": room,
-            "text": f"Left room: {room}",
-            "timestamp": self._get_timestamp(),
-        }
-
-        if room in self.rooms:
+            message = {
+                "type": "system",
+                "room": room,
+                "text": f"Joined room: {room}",
+                "timestamp": self._get_timestamp(),
+            }
             self.rooms[room]["messages"].append(message)
 
-        if self.broadcast:
-            await self.broadcast(message)
-            await self.broadcast(
-                {
-                    "type": "room_parted",
+            if self.broadcast:
+                await self.broadcast(message)
+                await self.broadcast(
+                    {
+                        "type": "room_joined",
+                        "room": room,
+                        "users": users,
+                    }
+                )
+        else:
+            # Another user joined the room we're already in
+            if room not in self.rooms:
+                logger.warning(f"Received JOINED for unknown room: {room}")
+                return
+
+            user_hash = user_list[0]
+            if isinstance(user_hash, (bytes, bytearray)):
+                user_hex = user_hash.hex()
+
+                # Add user to room member list
+                self.rooms[room]["users"].add(user_hex)
+                user_formatted = self._format_user(user_hash)
+
+                # Create join notification message
+                message = {
+                    "type": "join",
                     "room": room,
+                    "user": user_formatted,
+                    "timestamp": self._get_timestamp(),
                 }
-            )
+                self.rooms[room]["messages"].append(message)
+
+                if self.broadcast:
+                    await self.broadcast(message)
+                    # Also send user list update
+                    users = [self._format_user(bytes.fromhex(u)) for u in self.rooms[room]["users"]]
+                    await self.broadcast(
+                        {
+                            "type": "user_list_update",
+                            "room": room,
+                            "users": users,
+                        }
+                    )
+
+    async def _on_parted(self, room: str, env: dict) -> None:
+        """Handle PARTED confirmation from RRC.
+
+        This handles two scenarios:
+        1. Self-part: Multiple hashes (remaining members) - we left the room
+        2. Member-part: Single hash - another user left the room we're in
+        """
+        body = env.get(K_BODY)
+
+        logger.debug(f"PARTED room={room}, body type={type(body)}, body={body}")
+
+        # Extract user list from body (could be dict or list)
+        user_list = None
+        if isinstance(body, dict):
+            user_list = body.get(B_JOINED_USERS)  # Reuse same key for remaining members
+            logger.debug(f"Body is dict, user_list={user_list}")
+        elif isinstance(body, list):
+            user_list = body
+            logger.debug(f"Body is list directly, user_list={user_list}")
+
+        if not isinstance(user_list, list):
+            user_list = []
+
+        # Determine if this is a self-part (we left) or member-part (single user left)
+        is_self_part = len(user_list) != 1
+
+        if is_self_part:
+            # We left the room
+            message = {
+                "type": "system",
+                "room": room,
+                "text": f"Left room: {room}",
+                "timestamp": self._get_timestamp(),
+            }
+
+            if room in self.rooms:
+                self.rooms[room]["messages"].append(message)
+
+            if self.broadcast:
+                await self.broadcast(message)
+                await self.broadcast(
+                    {
+                        "type": "room_parted",
+                        "room": room,
+                    }
+                )
+        else:
+            # Another user left the room we're in
+            if room not in self.rooms:
+                logger.warning(f"Received PARTED for unknown room: {room}")
+                return
+
+            user_hash = user_list[0]
+            if isinstance(user_hash, (bytes, bytearray)):
+                user_hex = user_hash.hex()
+                user_formatted = self._format_user(user_hash)
+
+                # Remove user from room member list
+                self.rooms[room]["users"].discard(user_hex)
+
+                # Create part notification message
+                message = {
+                    "type": "part",
+                    "room": room,
+                    "user": user_formatted,
+                    "timestamp": self._get_timestamp(),
+                }
+                self.rooms[room]["messages"].append(message)
+
+                if self.broadcast:
+                    await self.broadcast(message)
+                    # Also send user list update
+                    users = [self._format_user(bytes.fromhex(u)) for u in self.rooms[room]["users"]]
+                    await self.broadcast(
+                        {
+                            "type": "user_list_update",
+                            "room": room,
+                            "users": users,
+                        }
+                    )
 
     async def _on_close(self) -> None:
         """Handle connection close from RRC."""

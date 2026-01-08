@@ -1,9 +1,10 @@
 <script>
-    import { currentRoomData, identityHash, sentMessageIds } from "../stores.js";
+    import { currentRoom, currentRoomData, identityHash, sentMessageIds } from "../stores.js";
 
     let messageContainer;
     let shouldAutoScroll = $state(true);
     let showScrollButton = $state(false);
+    let showTimestamps = $state(true);
 
     // Check if user is scrolled near the bottom
     function isNearBottom() {
@@ -69,64 +70,65 @@
         return false;
     }
 
-    function getMessageClass(msg) {
-        if (isOwnMessage(msg)) {
-            return "chat chat-end";
-        }
-        
+    function getMessageText(msg) {
         switch (msg.type) {
-            case "message":
-                return "chat chat-start";
-            case "system":
-                return "chat chat-end";
+            case "join":
+                return `→ ${msg.user} joined`;
+            case "part":
+                return `← ${msg.user} left`;
             case "notice":
-                return "chat chat-end";
-            case "error":
-                return "chat chat-end";
+                return formatNotice(msg.text);
             default:
-                return "chat";
+                return msg.text;
         }
     }
-
-    function getBubbleClass(msg) {
-        if (isOwnMessage(msg)) {
-            return "chat-bubble chat-bubble-accent";
+    
+    function formatNotice(text) {
+        if (!text) return text;
+        
+        // Parse IRC-style room notice: "room test: registered; mode=+nrt; topic=this is a test room"
+        const match = text.match(/^room\s+(\S+):\s*registered;\s*mode=([^;]+);\s*topic=(.+)$/);
+        if (match) {
+            const [, roomName, mode, topic] = match;
+            return topic ? `Topic: ${topic}` : `Room ${roomName} registered`;
         }
         
-        switch (msg.type) {
-            case "message":
-                return "chat-bubble chat-bubble-primary";
-            case "system":
-                return "chat-bubble chat-bubble-info";
-            case "notice":
-                return "chat-bubble chat-bubble-warning";
-            case "error":
-                return "chat-bubble chat-bubble-error";
-            default:
-                return "chat-bubble";
-        }
+        // If it doesn't match the expected format, return as-is
+        return text;
     }
 </script>
 
 <div class="message-area-wrapper">
+    {#if $currentRoom !== '[Hub]'}
+        <div class="flex justify-end p-2 border-b border-base-300">
+            <label class="label cursor-pointer gap-2">
+                <span class="label-text text-xs">Show timestamps</span>
+                <input type="checkbox" class="toggle toggle-sm" bind:checked={showTimestamps} />
+            </label>
+        </div>
+    {/if}
     <div bind:this={messageContainer} class="message-area p-4" onscroll={handleScroll}>
-        {#each ($currentRoomData?.messages || []) as msg, index (msg.timestamp + msg.text + index)}
-            <div class={getMessageClass(msg)}>
-                {#if msg.user}
-                    <div class="chat-header">
-                        {msg.user}
-                        <time class="text-xs opacity-50">{msg.timestamp}</time>
-                    </div>
-                {/if}
-                <div class={getBubbleClass(msg)} style="white-space: pre-line;">
-                    {msg.text}
+        {#each ($currentRoomData?.messages || []) as msg, index (msg.timestamp + (msg.text || msg.type || '') + (msg.user || '') + index)}
+            {#if msg.type === 'join' || msg.type === 'part' || msg.type === 'notice' || msg.type === 'system' || msg.type === 'error'}
+                <!-- Join/Part/Notice/System/Error informational messages -->
+                <div class="my-2">
+                    {#if showTimestamps || $currentRoom === '[Hub]'}
+                        <span class="text-xs opacity-40 mr-2">{msg.timestamp}</span>
+                    {/if}
+                    <span class="text-sm opacity-60 {msg.type === 'join' ? 'text-success' : msg.type === 'part' ? 'text-warning' : msg.type === 'error' ? 'text-error' : 'text-info'}">
+                        {getMessageText(msg)}
+                    </span>
                 </div>
-                {#if !msg.user && msg.timestamp}
-                    <div class="chat-footer opacity-50">
-                        <time class="text-xs">{msg.timestamp}</time>
-                    </div>
-                {/if}
-            </div>
+            {:else if msg.type === 'message'}
+                <!-- Regular chat messages -->
+                <div class="my-1">
+                    {#if showTimestamps || $currentRoom === '[Hub]'}
+                        <span class="text-xs opacity-40 mr-2">{msg.timestamp}</span>
+                    {/if}
+                    <span class="font-semibold {isOwnMessage(msg) ? 'text-accent' : 'text-primary'}">{msg.user}</span>
+                    <span class="ml-2" style="white-space: pre-line;">{msg.text}</span>
+                </div>
+            {/if}
         {/each}
     </div>
 
@@ -163,14 +165,5 @@
     .scroll-to-bottom-btn:hover {
         transform: translateY(-2px);
         box-shadow: 0 6px 8px -1px rgba(0, 0, 0, 0.15), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    }
-
-    /* --TEST-- Fix text wrapping for long messages */
-    :global(.chat-bubble) {
-        word-wrap: break-word;
-        overflow-wrap: break-word;
-        word-break: break-word;
-        max-width: 100%;
-        white-space: pre-wrap;
     }
 </style>
