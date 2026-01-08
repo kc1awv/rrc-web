@@ -96,6 +96,12 @@ function handleMessage(data) {
         case 'system':
             addSystemMessage(data);
             break;
+        case 'join':
+            addJoinMessage(data);
+            break;
+        case 'part':
+            addPartMessage(data);
+            break;
         case 'message_sent':
             handleMessageSent(data);
             break;
@@ -231,6 +237,52 @@ function addSystemMessage(data) {
             text: data.text,
             timestamp: data.timestamp || new Date().toLocaleTimeString()
         });
+
+        return new Map(r);
+    });
+}
+
+function addJoinMessage(data) {
+    const room = data.room || get(currentRoom);
+
+    rooms.update(r => {
+        if (!r.has(room)) {
+            r.set(room, { messages: [], users: new Set(), unread: 0 });
+        }
+
+        const roomData = r.get(room);
+        roomData.messages.push({
+            type: 'join',
+            user: data.user,
+            timestamp: data.timestamp || new Date().toLocaleTimeString()
+        });
+
+        if (room !== get(currentRoom)) {
+            roomData.unread++;
+        }
+
+        return new Map(r);
+    });
+}
+
+function addPartMessage(data) {
+    const room = data.room || get(currentRoom);
+
+    rooms.update(r => {
+        if (!r.has(room)) {
+            r.set(room, { messages: [], users: new Set(), unread: 0 });
+        }
+
+        const roomData = r.get(room);
+        roomData.messages.push({
+            type: 'part',
+            user: data.user,
+            timestamp: data.timestamp || new Date().toLocaleTimeString()
+        });
+
+        if (room !== get(currentRoom)) {
+            roomData.unread++;
+        }
 
         return new Map(r);
     });
