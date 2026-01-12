@@ -115,7 +115,7 @@
                     {#if showTimestamps || $currentRoom === '[Hub]'}
                         <span class="text-xs opacity-40 mr-2">{msg.timestamp}</span>
                     {/if}
-                    <span class="text-sm opacity-60 {msg.type === 'join' ? 'text-success' : msg.type === 'part' ? 'text-warning' : msg.type === 'error' ? 'text-error' : 'text-info'}">
+                    <span class="text-sm opacity-60 {msg.type === 'join' ? 'text-success' : msg.type === 'part' ? 'text-warning' : msg.type === 'error' ? 'text-error' : 'text-info'}" style="white-space: pre-line;">
                         {getMessageText(msg)}
                     </span>
                 </div>
